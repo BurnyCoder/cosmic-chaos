@@ -1,8 +1,6 @@
 # cosmic-chaos
 
-Your universe awaits! COSMIC CHAOS - an interactive space sandbox where you become a cosmic deity.
-
-An interactive cosmic sandbox where you click to spawn stars, double-click to create black holes, drag to paint nebulae, and watch everything interact with gravity physics across 5 trippy visual modes.
+Your universe awaits! COSMIC CHAOS - an interactive space sandbox where you become a cosmic deity, where you click to spawn stars, double-click to create black holes, drag to paint nebulae, and watch everything interact with gravity physics across 5 trippy visual modes.
 
 <img width="2552" height="1171" alt="image" src="https://github.com/user-attachments/assets/c7c9f897-77a7-4835-8fa9-f2ae3679aa10" />
 
