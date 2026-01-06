@@ -1,0 +1,777 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>COSMIC CHAOS - Universe Sandbox</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            overflow: hidden;
+            background: #000;
+            font-family: 'Courier New', monospace;
+        }
+
+        canvas {
+            display: block;
+            cursor: crosshair;
+        }
+
+        #ui {
+            position: fixed;
+            top: 20px;
+            left: 20px;
+            color: #fff;
+            z-index: 100;
+            text-shadow: 0 0 10px rgba(255,255,255,0.5);
+            user-select: none;
+        }
+
+        h1 {
+            font-size: 2em;
+            background: linear-gradient(90deg, #ff00ff, #00ffff, #ffff00, #ff00ff);
+            background-size: 300% 100%;
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            animation: rainbow 3s linear infinite;
+            margin-bottom: 10px;
+        }
+
+        @keyframes rainbow {
+            0% { background-position: 0% 50%; }
+            100% { background-position: 300% 50%; }
+        }
+
+        .controls {
+            font-size: 0.9em;
+            opacity: 0.8;
+            line-height: 1.6;
+        }
+
+        .stat {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            color: #0ff;
+            font-size: 1.2em;
+            text-shadow: 0 0 15px #0ff;
+        }
+
+        .mode-indicator {
+            position: fixed;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            padding: 15px 30px;
+            border-radius: 50px;
+            font-size: 1.2em;
+            font-weight: bold;
+            text-transform: uppercase;
+            letter-spacing: 3px;
+            transition: all 0.3s ease;
+        }
+
+        .supernova-flash {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: white;
+            pointer-events: none;
+            opacity: 0;
+            z-index: 50;
+        }
+
+        #warp-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            z-index: 10;
+            opacity: 0;
+            background: radial-gradient(ellipse at center, transparent 0%, rgba(100,0,255,0.3) 100%);
+            transition: opacity 0.5s;
+        }
+
+        .secret-unlocked {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            color: gold;
+            font-size: 2em;
+            text-shadow: 0 0 30px gold;
+            animation: pulse 0.5s ease-in-out;
+            pointer-events: none;
+            z-index: 200;
+        }
+
+        @keyframes pulse {
+            0%, 100% { transform: translate(-50%, -50%) scale(1); opacity: 1; }
+            50% { transform: translate(-50%, -50%) scale(1.5); opacity: 0.5; }
+        }
+    </style>
+</head>
+<body>
+    <canvas id="universe"></canvas>
+
+    <div id="ui">
+        <h1>COSMIC CHAOS</h1>
+        <div class="controls">
+            [CLICK] Spawn Star<br>
+            [DOUBLE-CLICK] Create Black Hole<br>
+            [DRAG] Paint Nebula<br>
+            [SCROLL] Zoom In/Out<br>
+            [SPACE] Time Warp<br>
+            [B] Big Bang!<br>
+            [G] Toggle Gravity<br>
+            [C] Clear Universe<br>
+            [1-5] Cosmic Modes
+        </div>
+    </div>
+
+    <div class="stat" id="stats">Particles: 0</div>
+    <div class="mode-indicator" id="mode">MODE: CREATION</div>
+    <div class="supernova-flash" id="flash"></div>
+    <div id="warp-overlay"></div>
+
+    <script>
+        const canvas = document.getElementById('universe');
+        const ctx = canvas.getContext('2d');
+        const stats = document.getElementById('stats');
+        const modeIndicator = document.getElementById('mode');
+        const flash = document.getElementById('flash');
+        const warpOverlay = document.getElementById('warp-overlay');
+
+        let width = canvas.width = window.innerWidth;
+        let height = canvas.height = window.innerHeight;
+
+        // Universe state
+        let particles = [];
+        let stars = [];
+        let blackHoles = [];
+        let nebulae = [];
+        let trails = [];
+
+        let gravityEnabled = true;
+        let timeWarp = 1;
+        let zoom = 1;
+        let cosmicMode = 1;
+        let mouseDown = false;
+        let mousePos = { x: 0, y: 0 };
+        let lastMousePos = { x: 0, y: 0 };
+        let secretCounter = 0;
+
+        const MODES = {
+            1: { name: 'CREATION', color: '#00ff88', bg: 'rgba(0,255,136,0.2)' },
+            2: { name: 'DESTRUCTION', color: '#ff0044', bg: 'rgba(255,0,68,0.2)' },
+            3: { name: 'PSYCHEDELIC', color: '#ff00ff', bg: 'rgba(255,0,255,0.2)' },
+            4: { name: 'QUANTUM', color: '#00ffff', bg: 'rgba(0,255,255,0.2)' },
+            5: { name: 'VOID', color: '#8800ff', bg: 'rgba(136,0,255,0.2)' }
+        };
+
+        // Particle class
+        class Particle {
+            constructor(x, y, vx, vy, color, size, life) {
+                this.x = x;
+                this.y = y;
+                this.vx = vx || (Math.random() - 0.5) * 2;
+                this.vy = vy || (Math.random() - 0.5) * 2;
+                this.color = color || this.randomColor();
+                this.size = size || Math.random() * 3 + 1;
+                this.life = life || 1;
+                this.decay = Math.random() * 0.005 + 0.001;
+                this.angle = Math.random() * Math.PI * 2;
+                this.spin = (Math.random() - 0.5) * 0.1;
+            }
+
+            randomColor() {
+                const colors = ['#ff00ff', '#00ffff', '#ffff00', '#ff0088', '#00ff88', '#8800ff'];
+                return colors[Math.floor(Math.random() * colors.length)];
+            }
+
+            update() {
+                if (gravityEnabled) {
+                    // Attracted to stars
+                    stars.forEach(star => {
+                        const dx = star.x - this.x;
+                        const dy = star.y - this.y;
+                        const dist = Math.sqrt(dx * dx + dy * dy);
+                        if (dist > 5 && dist < 300) {
+                            const force = (star.mass * 0.5) / (dist * dist);
+                            this.vx += (dx / dist) * force;
+                            this.vy += (dy / dist) * force;
+                        }
+                    });
+
+                    // Sucked into black holes
+                    blackHoles.forEach(hole => {
+                        const dx = hole.x - this.x;
+                        const dy = hole.y - this.y;
+                        const dist = Math.sqrt(dx * dx + dy * dy);
+                        if (dist < hole.radius * 2) {
+                            this.life = 0; // Consumed!
+                            hole.mass += 0.1;
+                            hole.radius = Math.min(100, 20 + hole.mass * 0.5);
+                        } else if (dist < 500) {
+                            const force = (hole.mass * 2) / (dist * dist);
+                            this.vx += (dx / dist) * force;
+                            this.vy += (dy / dist) * force;
+                        }
+                    });
+                }
+
+                this.x += this.vx * timeWarp;
+                this.y += this.vy * timeWarp;
+                this.angle += this.spin * timeWarp;
+
+                // Mode-specific behaviors
+                if (cosmicMode === 3) { // Psychedelic
+                    this.color = `hsl(${(Date.now() * 0.1 + this.x * 0.5) % 360}, 100%, 60%)`;
+                } else if (cosmicMode === 4) { // Quantum
+                    if (Math.random() < 0.01) {
+                        this.x = Math.random() * width;
+                        this.y = Math.random() * height;
+                    }
+                }
+
+                this.life -= this.decay * timeWarp;
+
+                // Wrap around edges
+                if (this.x < 0) this.x = width;
+                if (this.x > width) this.x = 0;
+                if (this.y < 0) this.y = height;
+                if (this.y > height) this.y = 0;
+            }
+
+            draw() {
+                ctx.save();
+                ctx.translate(this.x, this.y);
+                ctx.rotate(this.angle);
+                ctx.globalAlpha = this.life;
+                ctx.fillStyle = this.color;
+                ctx.shadowBlur = 10;
+                ctx.shadowColor = this.color;
+
+                if (cosmicMode === 4) {
+                    // Quantum squares
+                    ctx.fillRect(-this.size/2, -this.size/2, this.size, this.size);
+                } else {
+                    ctx.beginPath();
+                    ctx.arc(0, 0, this.size, 0, Math.PI * 2);
+                    ctx.fill();
+                }
+                ctx.restore();
+            }
+        }
+
+        // Star class
+        class Star {
+            constructor(x, y) {
+                this.x = x;
+                this.y = y;
+                this.radius = Math.random() * 15 + 10;
+                this.mass = this.radius * 2;
+                this.color = `hsl(${Math.random() * 60 + 20}, 100%, 70%)`;
+                this.pulsePhase = Math.random() * Math.PI * 2;
+                this.age = 0;
+                this.maxAge = Math.random() * 1000 + 500;
+            }
+
+            update() {
+                this.pulsePhase += 0.05 * timeWarp;
+                this.age += timeWarp;
+
+                // Emit particles
+                if (Math.random() < 0.3) {
+                    const angle = Math.random() * Math.PI * 2;
+                    particles.push(new Particle(
+                        this.x + Math.cos(angle) * this.radius,
+                        this.y + Math.sin(angle) * this.radius,
+                        Math.cos(angle) * 2,
+                        Math.sin(angle) * 2,
+                        this.color,
+                        2
+                    ));
+                }
+
+                // Supernova!
+                if (this.age > this.maxAge && cosmicMode !== 5) {
+                    this.supernova();
+                    return false;
+                }
+                return true;
+            }
+
+            supernova() {
+                // Epic explosion
+                flash.style.opacity = '0.8';
+                setTimeout(() => flash.style.opacity = '0', 100);
+
+                for (let i = 0; i < 200; i++) {
+                    const angle = Math.random() * Math.PI * 2;
+                    const speed = Math.random() * 10 + 5;
+                    particles.push(new Particle(
+                        this.x,
+                        this.y,
+                        Math.cos(angle) * speed,
+                        Math.sin(angle) * speed,
+                        `hsl(${Math.random() * 60}, 100%, 70%)`,
+                        Math.random() * 5 + 2,
+                        2
+                    ));
+                }
+
+                // Maybe create a black hole
+                if (Math.random() < 0.3) {
+                    blackHoles.push(new BlackHole(this.x, this.y));
+                }
+            }
+
+            draw() {
+                const pulse = 1 + Math.sin(this.pulsePhase) * 0.2;
+                const r = this.radius * pulse;
+
+                // Glow layers
+                for (let i = 5; i > 0; i--) {
+                    ctx.beginPath();
+                    ctx.arc(this.x, this.y, r + i * 8, 0, Math.PI * 2);
+                    ctx.fillStyle = this.color.replace('70%', `${10 + i * 5}%`);
+                    ctx.globalAlpha = 0.1;
+                    ctx.fill();
+                }
+
+                ctx.globalAlpha = 1;
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, r, 0, Math.PI * 2);
+                ctx.fillStyle = this.color;
+                ctx.shadowBlur = 30;
+                ctx.shadowColor = this.color;
+                ctx.fill();
+
+                // Corona
+                ctx.strokeStyle = 'rgba(255,255,200,0.5)';
+                ctx.lineWidth = 2;
+                for (let i = 0; i < 8; i++) {
+                    const angle = (i / 8) * Math.PI * 2 + this.pulsePhase;
+                    ctx.beginPath();
+                    ctx.moveTo(
+                        this.x + Math.cos(angle) * r,
+                        this.y + Math.sin(angle) * r
+                    );
+                    ctx.lineTo(
+                        this.x + Math.cos(angle) * (r + 20 * pulse),
+                        this.y + Math.sin(angle) * (r + 20 * pulse)
+                    );
+                    ctx.stroke();
+                }
+            }
+        }
+
+        // Black Hole class
+        class BlackHole {
+            constructor(x, y) {
+                this.x = x;
+                this.y = y;
+                this.radius = 20;
+                this.mass = 50;
+                this.rotation = 0;
+                this.consumed = 0;
+            }
+
+            update() {
+                this.rotation += 0.02 * timeWarp;
+
+                // Consume nearby stars
+                stars = stars.filter(star => {
+                    const dx = star.x - this.x;
+                    const dy = star.y - this.y;
+                    const dist = Math.sqrt(dx * dx + dy * dy);
+                    if (dist < this.radius + star.radius) {
+                        this.mass += star.mass;
+                        this.radius = Math.min(150, 20 + this.mass * 0.3);
+                        this.consumed++;
+
+                        // Check for secret
+                        if (this.consumed >= 5 && secretCounter < 1) {
+                            showSecret("BLACK HOLE KING!");
+                            secretCounter++;
+                        }
+                        return false;
+                    }
+                    return true;
+                });
+
+                // Merge black holes
+                blackHoles.forEach(other => {
+                    if (other === this) return;
+                    const dx = other.x - this.x;
+                    const dy = other.y - this.y;
+                    const dist = Math.sqrt(dx * dx + dy * dy);
+                    if (dist < this.radius + other.radius && this.mass >= other.mass) {
+                        this.mass += other.mass;
+                        this.radius = Math.min(200, 20 + this.mass * 0.3);
+                        other.mass = 0;
+                    }
+                });
+
+                return this.mass > 0;
+            }
+
+            draw() {
+                // Accretion disk
+                ctx.save();
+                ctx.translate(this.x, this.y);
+                ctx.rotate(this.rotation);
+
+                for (let i = 0; i < 3; i++) {
+                    const diskRadius = this.radius * (2 + i * 0.5);
+                    ctx.beginPath();
+                    ctx.ellipse(0, 0, diskRadius, diskRadius * 0.3, 0, 0, Math.PI * 2);
+                    ctx.strokeStyle = `hsla(${280 + i * 20}, 100%, 50%, ${0.5 - i * 0.15})`;
+                    ctx.lineWidth = 3;
+                    ctx.stroke();
+                }
+
+                ctx.restore();
+
+                // Event horizon
+                const gradient = ctx.createRadialGradient(
+                    this.x, this.y, 0,
+                    this.x, this.y, this.radius * 2
+                );
+                gradient.addColorStop(0, 'black');
+                gradient.addColorStop(0.5, 'rgba(50,0,100,0.8)');
+                gradient.addColorStop(1, 'transparent');
+
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, this.radius * 2, 0, Math.PI * 2);
+                ctx.fillStyle = gradient;
+                ctx.fill();
+
+                // Core
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
+                ctx.fillStyle = '#000';
+                ctx.fill();
+
+                // Gravitational lensing effect
+                ctx.strokeStyle = 'rgba(255,255,255,0.1)';
+                ctx.lineWidth = 1;
+                for (let i = 0; i < 10; i++) {
+                    ctx.beginPath();
+                    ctx.arc(this.x, this.y, this.radius + i * 5, 0, Math.PI * 2);
+                    ctx.stroke();
+                }
+            }
+        }
+
+        // Nebula class
+        class Nebula {
+            constructor(x, y, color) {
+                this.x = x;
+                this.y = y;
+                this.radius = Math.random() * 50 + 30;
+                this.color = color || `hsla(${Math.random() * 360}, 70%, 50%, 0.3)`;
+                this.life = 1;
+            }
+
+            update() {
+                this.life -= 0.002;
+                this.radius += 0.5;
+                return this.life > 0;
+            }
+
+            draw() {
+                const gradient = ctx.createRadialGradient(
+                    this.x, this.y, 0,
+                    this.x, this.y, this.radius
+                );
+                gradient.addColorStop(0, this.color.replace('0.3', String(this.life * 0.3)));
+                gradient.addColorStop(1, 'transparent');
+
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
+                ctx.fillStyle = gradient;
+                ctx.fill();
+            }
+        }
+
+        function showSecret(text) {
+            const el = document.createElement('div');
+            el.className = 'secret-unlocked';
+            el.textContent = text;
+            document.body.appendChild(el);
+            setTimeout(() => el.remove(), 2000);
+        }
+
+        function bigBang() {
+            // Clear everything first
+            particles = [];
+            stars = [];
+            blackHoles = [];
+
+            // Epic flash
+            flash.style.opacity = '1';
+            setTimeout(() => flash.style.opacity = '0', 200);
+
+            // Explosion from center
+            const cx = width / 2;
+            const cy = height / 2;
+
+            for (let i = 0; i < 500; i++) {
+                const angle = Math.random() * Math.PI * 2;
+                const speed = Math.random() * 15 + 5;
+                particles.push(new Particle(
+                    cx,
+                    cy,
+                    Math.cos(angle) * speed,
+                    Math.sin(angle) * speed,
+                    `hsl(${Math.random() * 360}, 100%, 60%)`,
+                    Math.random() * 4 + 1,
+                    3
+                ));
+            }
+
+            // Create initial stars
+            setTimeout(() => {
+                for (let i = 0; i < 5; i++) {
+                    stars.push(new Star(
+                        Math.random() * width,
+                        Math.random() * height
+                    ));
+                }
+            }, 500);
+        }
+
+        function updateMode(mode) {
+            cosmicMode = mode;
+            const m = MODES[mode];
+            modeIndicator.textContent = `MODE: ${m.name}`;
+            modeIndicator.style.color = m.color;
+            modeIndicator.style.background = m.bg;
+            modeIndicator.style.boxShadow = `0 0 30px ${m.color}`;
+        }
+
+        // Draw starfield background
+        const bgStars = [];
+        for (let i = 0; i < 200; i++) {
+            bgStars.push({
+                x: Math.random() * width,
+                y: Math.random() * height,
+                size: Math.random() * 1.5,
+                twinkle: Math.random() * Math.PI * 2
+            });
+        }
+
+        function drawBackground() {
+            // Deep space gradient
+            const gradient = ctx.createRadialGradient(
+                width/2, height/2, 0,
+                width/2, height/2, Math.max(width, height)
+            );
+
+            if (cosmicMode === 5) {
+                gradient.addColorStop(0, '#0a0010');
+                gradient.addColorStop(1, '#000');
+            } else if (cosmicMode === 3) {
+                const hue = (Date.now() * 0.02) % 360;
+                gradient.addColorStop(0, `hsl(${hue}, 50%, 10%)`);
+                gradient.addColorStop(1, '#000');
+            } else {
+                gradient.addColorStop(0, '#0a0a20');
+                gradient.addColorStop(0.5, '#050510');
+                gradient.addColorStop(1, '#000');
+            }
+
+            ctx.fillStyle = gradient;
+            ctx.fillRect(0, 0, width, height);
+
+            // Twinkling stars
+            bgStars.forEach(star => {
+                star.twinkle += 0.02;
+                const brightness = 0.5 + Math.sin(star.twinkle) * 0.5;
+                ctx.beginPath();
+                ctx.arc(star.x, star.y, star.size, 0, Math.PI * 2);
+                ctx.fillStyle = `rgba(255,255,255,${brightness})`;
+                ctx.fill();
+            });
+        }
+
+        // Main animation loop
+        function animate() {
+            ctx.save();
+
+            // Apply zoom
+            ctx.translate(width/2, height/2);
+            ctx.scale(zoom, zoom);
+            ctx.translate(-width/2, -height/2);
+
+            drawBackground();
+
+            // Update and draw nebulae
+            nebulae = nebulae.filter(n => n.update());
+            nebulae.forEach(n => n.draw());
+
+            // Update and draw particles
+            particles = particles.filter(p => p.life > 0);
+            particles.forEach(p => {
+                p.update();
+                p.draw();
+            });
+
+            // Update and draw stars
+            stars = stars.filter(s => s.update());
+            stars.forEach(s => s.draw());
+
+            // Update and draw black holes
+            blackHoles = blackHoles.filter(h => h.update());
+            blackHoles.forEach(h => h.draw());
+
+            ctx.restore();
+
+            // Update stats
+            stats.textContent = `Particles: ${particles.length} | Stars: ${stars.length} | Black Holes: ${blackHoles.length}`;
+
+            requestAnimationFrame(animate);
+        }
+
+        // Event listeners
+        canvas.addEventListener('mousedown', (e) => {
+            mouseDown = true;
+            mousePos = { x: e.clientX, y: e.clientY };
+            lastMousePos = { ...mousePos };
+        });
+
+        canvas.addEventListener('mouseup', () => {
+            mouseDown = false;
+        });
+
+        canvas.addEventListener('mousemove', (e) => {
+            lastMousePos = { ...mousePos };
+            mousePos = { x: e.clientX, y: e.clientY };
+
+            if (mouseDown) {
+                // Paint nebula trail
+                nebulae.push(new Nebula(
+                    e.clientX,
+                    e.clientY,
+                    `hsla(${Math.random() * 360}, 70%, 50%, 0.3)`
+                ));
+
+                // Spawn trail particles
+                for (let i = 0; i < 3; i++) {
+                    particles.push(new Particle(
+                        e.clientX + (Math.random() - 0.5) * 20,
+                        e.clientY + (Math.random() - 0.5) * 20
+                    ));
+                }
+            }
+        });
+
+        canvas.addEventListener('click', (e) => {
+            // Spawn a star
+            stars.push(new Star(e.clientX, e.clientY));
+
+            // Burst of particles
+            for (let i = 0; i < 30; i++) {
+                const angle = (i / 30) * Math.PI * 2;
+                particles.push(new Particle(
+                    e.clientX,
+                    e.clientY,
+                    Math.cos(angle) * 3,
+                    Math.sin(angle) * 3
+                ));
+            }
+        });
+
+        canvas.addEventListener('dblclick', (e) => {
+            // Create black hole
+            blackHoles.push(new BlackHole(e.clientX, e.clientY));
+
+            // Dramatic effect
+            for (let i = 0; i < 50; i++) {
+                const angle = Math.random() * Math.PI * 2;
+                const dist = Math.random() * 100 + 50;
+                particles.push(new Particle(
+                    e.clientX + Math.cos(angle) * dist,
+                    e.clientY + Math.sin(angle) * dist,
+                    -Math.cos(angle) * 5,
+                    -Math.sin(angle) * 5,
+                    '#8800ff'
+                ));
+            }
+        });
+
+        canvas.addEventListener('wheel', (e) => {
+            zoom *= e.deltaY > 0 ? 0.95 : 1.05;
+            zoom = Math.max(0.5, Math.min(3, zoom));
+        });
+
+        document.addEventListener('keydown', (e) => {
+            switch(e.key.toLowerCase()) {
+                case ' ':
+                    timeWarp = timeWarp === 1 ? 3 : 1;
+                    warpOverlay.style.opacity = timeWarp > 1 ? '1' : '0';
+                    break;
+                case 'b':
+                    bigBang();
+                    break;
+                case 'g':
+                    gravityEnabled = !gravityEnabled;
+                    break;
+                case 'c':
+                    particles = [];
+                    stars = [];
+                    blackHoles = [];
+                    nebulae = [];
+                    break;
+                case '1':
+                case '2':
+                case '3':
+                case '4':
+                case '5':
+                    updateMode(parseInt(e.key));
+                    break;
+            }
+        });
+
+        window.addEventListener('resize', () => {
+            width = canvas.width = window.innerWidth;
+            height = canvas.height = window.innerHeight;
+        });
+
+        // Initialize
+        updateMode(1);
+        animate();
+
+        // Easter egg: Konami code
+        let konamiCode = [];
+        const konamiSequence = ['ArrowUp', 'ArrowUp', 'ArrowDown', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'ArrowLeft', 'ArrowRight', 'b', 'a'];
+
+        document.addEventListener('keydown', (e) => {
+            konamiCode.push(e.key);
+            if (konamiCode.length > konamiSequence.length) {
+                konamiCode.shift();
+            }
+            if (konamiCode.join(',') === konamiSequence.join(',')) {
+                showSecret("COSMIC GOD MODE!");
+                for (let i = 0; i < 10; i++) {
+                    stars.push(new Star(Math.random() * width, Math.random() * height));
+                }
+                for (let i = 0; i < 3; i++) {
+                    blackHoles.push(new BlackHole(Math.random() * width, Math.random() * height));
+                }
+            }
+        });
+    </script>
+</body>
+</html>
