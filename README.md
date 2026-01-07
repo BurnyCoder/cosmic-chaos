@@ -29,4 +29,4 @@ Your universe awaits! COSMIC CHAOS - an interactive space sandbox where you beco
   - Konami code (↑↑↓↓←→←→BA) = GOD MODE
 
   Open it with:
-  xdg-open /home/burny/projects/ai-playground/fun/cosmic-chaos.html
+  xdg-open cosmic-chaos.html
